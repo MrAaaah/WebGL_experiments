@@ -2,9 +2,9 @@
 
 Ce repo contient une partie de mes essais avec WebGL (version d'OpenGL basée sur OpenGL ES qui est elle-même basée sur OpenGL).
 
-- **Torus** : Un tore sur lequel est appliqué un ombrage de phong via le fragment shader.
+- **Wall of waves** : Des sortes de vagues créées à partir d'une grille, l'animation est faite dans le vertex shader à coup de trigonométrie. [Demo](http://mraaaah.fr/WebGL/2014_03_01_wall_of_waves.html)
 
-- **Wall of waves** : Des sortes de vagues créées à partir d'une grille, l'animation est faite dans le vertex shader à coup de trigonométrie.
+- **Torus** : Un tore sur lequel est appliqué un ombrage de phong via le fragment shader. [Demo](http://mraaaah.fr/WebGL/2014_02_26_torus.html)
     
 # Divers
 
