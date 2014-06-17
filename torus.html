@@ -1,10 +1,10 @@
 <html>
 
 <head>
-<title>Torus</title>
+<title>WebGL Phong</title>
 <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
 
-<script type="text/javascript" src="lib/glMatrix-0.9.5.min.js"></script>
+<script type="text/javascript" src="lib/gl-matrix.js"></script>
 <script type="text/javascript" src="lib/webgl-utils.js"></script>
 
 <script id="shader-vs" type="x-shader/x-vertex">
@@ -14,22 +14,26 @@
 
     uniform mat4 uMVMatrix;
     uniform mat4 uPMatrix;
+    uniform mat4 uNMatrix;
 
-    const vec4 lightPos = vec4(3.0,3.0,0.0, 1.0);
+    const vec4 lightPosition = vec4(3.0,3.0,0.0, 1.0);
 
     varying vec4 aPosition;
     varying vec4 aColor;
-    varying vec3 aNormal;
-    varying vec3 aLightPos;
-
+    varying vec4 aNormal;
+    varying vec4 aLight;
+    varying vec4 aViewer;
+    varying vec4 aHalf;
 
     void main(void) {
         aPosition = uMVMatrix * vec4(aVertexPosition, 1.0);
-        aLightPos = (uMVMatrix * lightPos).xyz;
-        gl_Position = uPMatrix * aPosition;
-        
+        aLight = normalize(lightPosition - aPosition);
         aColor = aVertexColor;
-        aNormal = aVertexNormal;
+        aViewer = - normalize(aPosition);
+        aNormal = normalize(uNMatrix * vec4(aVertexNormal, 1.0));
+        aHalf = normalize(aLight + aViewer);
+
+        gl_Position = uPMatrix * aPosition;
     }
 </script>
 
@@ -38,37 +42,25 @@
 
     varying vec4 aPosition;
     varying vec4 aColor;
-    varying vec3 aNormal;
-    varying vec3 aLightPos;
+    varying vec4 aNormal;
+    varying vec4 aLight;
+    varying vec4 aViewer;
+    varying vec4 aHalf;
 
     const vec3 diffuseColor = vec3(0.5, 0.0, 0.0);
     const vec3 specColor = vec3(1.0, 1.0, 1.0);
 
     void main(void) {
-        // gl_FragColor = vec4(aNormal, 1.0);
+        vec3 normal = normalize(aNormal.xyz);
+        vec3 light = normalize(aLight.xyz);
+        vec3 eye = normalize(aViewer.xyz);
+        vec3 halfV = normalize(aHalf.xyz);
 
-        vec3 normal = normalize(aNormal); 
-        vec3 lightDir = normalize(aLightPos - aPosition.xyz);
+        vec4 Kd = aColor * max(dot(normal, light), 0.0);
+        vec4 Ks = vec4(specColor, 1.0) * pow(max(dot(halfV, normal), 0.0), 255.0);
+        vec4 Ka = vec4(0.1, 0.1, 0.1, 1);
 
-      float lambertian = max(dot(lightDir,normal), 0.0);
-      float specular = 0.0;
-
-      if(lambertian > 0.0) {
-
-        vec3 reflectDir = reflect(-lightDir, normal);
-        vec3 viewDir = normalize(-aPosition.xyz);
-
-        float specAngle = max(dot(reflectDir, viewDir), 0.0);
-        specular = pow(specAngle, 4.0);
-
-        // the exponent controls the shininess (try mode 2)
-        specular = pow(specAngle, 16.0);
-
-
-      }
-
-      gl_FragColor = vec4( lambertian*aColor.rgb +
-                            specular*specColor, 1.0);
+        gl_FragColor = Kd + Ks + Ka;
     }
 </script>
 
@@ -84,7 +76,7 @@
         } catch (e) {
         }
         if (!gl) {
-            alert("Visiblement ton navigateur ne supporte pas WebGL. \n À l'heure actuelle Safari (iOs et Os X) ne le supporte pas encore. \nCette animation à été testée et fonctionne avec Firefox et Chrome (attention l'antialiasing est désactivé sous OsX avec Chrome et les cartes nVidia). \n \nMessage datant du 1er mars 2014");
+            alert("Could not initialise WebGL, sorry :-(");
         }
     }
 
@@ -153,16 +145,18 @@
 
         shaderProgram.pMatrixUniform = gl.getUniformLocation(shaderProgram, "uPMatrix");
         shaderProgram.mvMatrixUniform = gl.getUniformLocation(shaderProgram, "uMVMatrix");
+        shaderProgram.nMatrixUniform = gl.getUniformLocation(shaderProgram, "uNMatrix");
     }
 
 
     var mvMatrix = mat4.create();
     var mvMatrixStack = [];
     var pMatrix = mat4.create();
+    var nMatrix = mat4.create();
 
     function mvPushMatrix() {
         var copy = mat4.create();
-        mat4.set(mvMatrix, copy);
+        mat4.copy(copy, mvMatrix);
         mvMatrixStack.push(copy);
     }
 
@@ -176,63 +170,61 @@
     function setMatrixUniforms() {
         gl.uniformMatrix4fv(shaderProgram.pMatrixUniform, false, pMatrix);
         gl.uniformMatrix4fv(shaderProgram.mvMatrixUniform, false, mvMatrix);
+        gl.uniformMatrix4fv(shaderProgram.nMatrixUniform, false, nMatrix);
     }
 
     function tore(u, v, R, r) {
-        return [(R + r * Math.cos(v)) * Math.cos(u), (R + r * Math.cos(v)) * Math.sin(u), r * Math.sin(v)];
+        out = vec3.create();
+        out[0] = (R + r * Math.cos(v)) * Math.cos(u);
+        out[1] = (R + r * Math.cos(v)) * Math.sin(u);
+        out[2] = r * Math.sin(v);
+        return out;
     }
 
-    // function normalize(vect) {
-
-    // }
-
-    function calculVecteurNormalize(origin, dest) {
-        return vec3.normalize([dest[0] - origin[0], dest[1] - origin[1], dest[2] - origin[2]]);
-    }
-
-
-    var triangleVertexBuffer = [];
-    triangleVertexBuffer.vertices = [];
-    triangleVertexBuffer.indices = [];
-
+    var toreVBO = [];
+    toreVBO.vertices = [];
+    toreVBO.indices = [];
 
     function discretise(M, N, R, r) {
-        
         stepH = (2 * Math.PI) / M;
         stepV = (2 * Math.PI) / N;
-        toreScale = 1;
+        scale = 1;
+
+        pointCentralTube = vec3.create();
         for (var i = 0; i < M; i++) {
-            pointCentralTube = [R * Math.cos(i * stepH), R * Math.sin(i * stepH), 0];
-            
+            theta = i * stepH;
+            pointCentralTube[0] = R * Math.cos(theta); pointCentralTube[1] = R * Math.sin(theta); pointCentralTube[2] = 0;
             for (var j = 0; j < N; j++) {
-                p = tore(i * stepH, j * stepV, R, r);
+                p = tore(theta, j * stepV, R, r);
+                n = vec3.create();
+                vec3.subtract(n, p, pointCentralTube);
+                vec3.normalize(n, n);
 
                 idVert = (i * N + j);
 
                 // vertices
-                triangleVertexBuffer.vertices[idVert * 10]     = p[0] * toreScale;
-                triangleVertexBuffer.vertices[idVert * 10 + 1] = p[1] * toreScale;
-                triangleVertexBuffer.vertices[idVert * 10 + 2] = p[2] * toreScale;
-                
+                toreVBO.vertices[idVert * 10]     = p[0] * scale;
+                toreVBO.vertices[idVert * 10 + 1] = p[1] * scale;
+                toreVBO.vertices[idVert * 10 + 2] = p[2] * scale;
+
                 // colors
-                triangleVertexBuffer.vertices[idVert * 10 + 3] = 0.1;
-                triangleVertexBuffer.vertices[idVert * 10 + 4] = 0.9;
-                triangleVertexBuffer.vertices[idVert * 10 + 5] = 0.9;
-                triangleVertexBuffer.vertices[idVert * 10 + 6] = 1.0;
-                
+                toreVBO.vertices[idVert * 10 + 3] = 0.1;
+                toreVBO.vertices[idVert * 10 + 4] = 0.5;
+                toreVBO.vertices[idVert * 10 + 5] = 0.9;
+                toreVBO.vertices[idVert * 10 + 6] = 1.0;
+
                 // normales
-                normale = calculVecteurNormalize(pointCentralTube, p);
-                triangleVertexBuffer.vertices[idVert * 10 + 7] = normale[0];
-                triangleVertexBuffer.vertices[idVert * 10 + 8] = normale[1];
-                triangleVertexBuffer.vertices[idVert * 10 + 9] = normale[2];
-                
+                toreVBO.vertices[idVert * 10 + 7] = n[0];
+                toreVBO.vertices[idVert * 10 + 8] = n[1];
+                toreVBO.vertices[idVert * 10 + 9] = n[2];
+
                 // indices
-                triangleVertexBuffer.indices[idVert * 6]     = (i * N) + j;
-                triangleVertexBuffer.indices[idVert * 6 + 1] = (((i+1)%M) * N) + ((j + 1) % N);
-                triangleVertexBuffer.indices[idVert * 6 + 2] = (i * N) + ((j + 1) % N);
-                triangleVertexBuffer.indices[idVert * 6 + 3] = (((i+1)%M) * N) + ((j + 1) % N);
-                triangleVertexBuffer.indices[idVert * 6 + 4] = (i * N) + j;
-                triangleVertexBuffer.indices[idVert * 6 + 5] = (((i+1)%M) * N) + (j % N);
+                toreVBO.indices[idVert * 6]     = (i * N) + j;
+                toreVBO.indices[idVert * 6 + 1] = (((i+1)%M) * N) + ((j + 1) % N);
+                toreVBO.indices[idVert * 6 + 2] = (i * N) + ((j + 1) % N);
+                toreVBO.indices[idVert * 6 + 3] = (((i+1)%M) * N) + ((j + 1) % N);
+                toreVBO.indices[idVert * 6 + 4] = (i * N) + j;
+                toreVBO.indices[idVert * 6 + 5] = (((i+1)%M) * N) + (j % N);
             }
         }
     }
@@ -243,20 +235,21 @@
     function initBuffers() {
         M = 64;
         N = 64;
-        discretise(M, N, 1.0, 0.25);
+        discretise(M, N, 2.0, 0.5);
 
         vertVBO = gl.createBuffer();
         indexVBO = gl.createBuffer();
-        
+
         gl.bindBuffer(gl.ARRAY_BUFFER, vertVBO);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(triangleVertexBuffer.vertices), gl.STATIC_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(toreVBO.vertices), gl.STATIC_DRAW);
 
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexVBO);
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(triangleVertexBuffer.indices), gl.STATIC_DRAW);
-        
-        triangleVertexBuffer.itemSize = 10;
-        triangleVertexBuffer.numItems = M*N;
-        triangleVertexBuffer.numIndices = M*N*6;
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(toreVBO.indices), gl.STATIC_DRAW);
+
+        toreVBO.itemSize = 10;
+        //toreVBO.itemSize = 64;
+        toreVBO.numItems = M*N;
+        toreVBO.numIndices = M*N*6;
     }
 
     function tick() {
@@ -287,26 +280,30 @@
         gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-        mat4.perspective(45, gl.viewportWidth / gl.viewportHeight, 0.1, 100.0, pMatrix);
+        mat4.perspective(pMatrix, 45, gl.viewportWidth / gl.viewportHeight, 0.1, 100.0);
 
         mat4.identity(mvMatrix);
 
-        mat4.translate(mvMatrix, [0.0, 0, -6]);
+         mat4.translate(mvMatrix, mvMatrix, [0.0, 0, -6]);
         // mat4.rotate(mvMatrix, degToRad(90), [0.2, 0.3, 0.2]);
 
         mvPushMatrix();
 
-        mat4.rotate(mvMatrix, degToRad(rTri), [0.3, 0.2, 0.0]);
-        
+        //mat4.rotate(mvMatrix, mvMatrix, degToRad(90), [1, 0, 0.0]);
+        mat4.rotate(mvMatrix, mvMatrix, degToRad(rTri), [0.3, 0.2, 0.0]);
+        //console.log(nMatrix);
+        mat4.transpose(nMatrix, mvMatrix);
+        mat4.invert(nMatrix, nMatrix);
+
         // setup interleaved VBO and IBO
         gl.bindBuffer(gl.ARRAY_BUFFER, vertVBO);
         gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 10*4, 0);
         gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, 4, gl.FLOAT, false, 10*4, 3*4);
         gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute, 3, gl.FLOAT, false, 10*4, 7*4);
-        
+
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexVBO);
         setMatrixUniforms();
-        gl.drawElements(gl.TRIANGLES, triangleVertexBuffer.numIndices, gl.UNSIGNED_SHORT, 0);
+        gl.drawElements(gl.TRIANGLES, toreVBO.numIndices, gl.UNSIGNED_SHORT, 0);
 
         mvPopMatrix();
     }
