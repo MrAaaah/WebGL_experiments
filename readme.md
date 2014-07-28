@@ -2,6 +2,8 @@
 
 Ce repo contient une partie de mes essais avec WebGL (version d'OpenGL basée sur OpenGL ES qui est elle-même basée sur OpenGL).
 
+- **Mandelbrot** : La fractale de Mandelbrot implémentée dans un fragment shader.
+
 - **Wall of waves** : Des sortes de vagues créées à partir d'une grille, l'animation est faite dans le vertex shader à coup de trigonométrie. [Demo](http://mraaaah.fr/WebGL/wall_of_waves.html)
 
 - **Torus** : Un tore sur lequel est appliqué un ombrage de phong via le fragment shader. [Demo](http://mraaaah.fr/WebGL/torus.html)
